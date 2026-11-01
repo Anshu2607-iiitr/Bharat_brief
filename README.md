@@ -2,8 +2,15 @@
 
 **Government press releases, explained in your language, checked number by number, delivered as voice.**
 
-Live website: <LIVE_URL>  
-Telegram bot: @<BOT_USERNAME>
+## 🚀 Live prototype
+
+| | Link |
+|---|---|
+| **Telegram bot (primary product)** | **https://t.me/user_verifbot** |
+| Website (companion) | https://bharatbrief-j3e3.onrender.com/?lang=hi |
+
+Open the bot, tap **Start**, pick a language and who you are: the first verified news arrives with a voice note.
+The website is hosted on Render's free tier; if it has been idle, the first load can take up to a minute.
 
 ## The problem
 
@@ -18,11 +25,19 @@ deadlines, especially people who prefer their own language or listening over rea
 ## What BharatBrief does
 
 1. **Watches PIB live** every 10 minutes and stores every new release.
-2. **Explains each release simply** in 6 Indian languages: what happened, how it affects you, what you should do.
+2. **Explains each release simply** in 23 Indian languages (voice in 11): what happened, how it affects you, what you should do.
 3. **Verifies every number and date** in the summary against the original release. A wrong summary is
    retried once with the error fed back to the model; if it is still wrong, it is **not sent**.
-4. **Speaks it**: an AI voice note in the same language, labelled as AI-generated.
+4. **Speaks it**: an AI voice note in the same language (male or female voice, user's choice), labelled as AI-generated.
 5. **Pushes it to the right people** on Telegram (matched by role) and shows it on a public website.
+6. **Answers questions by voice**: hold the mic and ask; the answer comes only from that release, with paragraph citations.
+7. **Morning digest and reminders**: top 3 stories as one voice note at 8 AM, and one-tap reminders for deadlines.
+
+### On Telegram
+
+- Big menu buttons, no commands to learn: 📰 Today's news · 🌅 Top 3 · 🎙️ Ask · ⚙️ Settings
+- ➡️ Next story (news for your role first), 📤 Share on WhatsApp with the official source link
+- Two-tap setup: language first, then who you are
 
 ## Architecture
 
@@ -30,13 +45,15 @@ deadlines, especially people who prefer their own language or listening over rea
 flowchart LR
     PIB[PIB RSS feed<br/>live] --> W[worker.py<br/>every 10 min]
     W --> DB[(SQLite<br/>releases, summaries,<br/>users, events)]
-    W --> S[Summary<br/>Gemini, fallback Groq]
+    W --> Q[Summary job queue<br/>paced, backoff]
+    Q --> S[Summary<br/>6 Gemini + 3 Groq models<br/>auto rotation]
     S --> V{Verifier<br/>numbers + dates<br/>match original?}
     V -- no, retry once --> S
     V -- still no --> X[Not sent<br/>logged]
     V -- yes --> DB
     DB --> T[Sarvam TTS<br/>voice note]
-    T --> B[Telegram bot<br/>push alerts, /khabar]
+    T --> B[Telegram bot<br/>alerts, digest, voice Q&A]
+    U[User voice question] --> WH[Whisper<br/>speech to text] --> B
     T --> H[Website<br/>Home.py]
     DB --> D[Dashboard<br/>agent trace,<br/>PIB-down toggle]
 ```
@@ -45,17 +62,18 @@ flowchart LR
 
 | Failure | What the system does |
 |---|---|
-| Gemini busy / quota over | Retries with backoff, then falls back to Groq automatically |
+| Gemini busy / quota over | Retries with backoff, then rotates through 6 Gemini and 3 Groq models automatically |
 | A model is retired | Groq model is picked automatically from the live model list |
 | AI writes a wrong number or date | Verifier catches it, retries with feedback, blocks it if still wrong |
 | PIB is down | Shows the last data with a clear notice; nothing crashes (demo toggle on the dashboard) |
 | Any API hangs | Every call has a timeout |
+| Many processes, one database | SQLite in WAL mode with a 30 s busy timeout; bot and worker auto-restart on crash |
 | Same news twice | PRID-based de-duplication and a `sent_log`, so nobody gets a message twice |
 
 ## Tech stack
 
-Python · SQLite · Streamlit · python-telegram-bot · Google Gemini · Groq · Sarvam AI (Bulbul TTS) ·
-ffmpeg · Docker · Render
+Python · SQLite (WAL) · Streamlit · python-telegram-bot · Google Gemini / Gemma · Groq (Qwen, GPT-OSS, Whisper) ·
+Sarvam AI (Bulbul v3 TTS) · ffmpeg · Docker · Render
 
 **Data source:** PIB press-release RSS (`https://pib.gov.in/RssMain.aspx?ModId=6&Lang=2&Regid=3`) and the
 release pages it links to. No mock data: everything shown is fetched live.
@@ -96,7 +114,11 @@ Health check before a demo: `python check_apis.py`
 | `voice.py` | Verified summary to Sarvam voice |
 | `audio_util.py` | WAV to OGG/Opus for Telegram voice notes |
 | `alerts.py` | Audience matching, cache, push alerts |
-| `bot.py` | Telegram onboarding, `/khabar`, `/check` |
+| `bot.py`, `bot_text.py` | Telegram bot: menu, next story, share, settings, voice Q&A |
+| `voice_input.py` | Voice question to text (Whisper) |
+| `qa.py` | Answers from the release's own paragraphs, with citations |
+| `digest.py`, `reminders.py` | 8 AM digest, deadline reminders |
+| `jobqueue.py`, `dbfix.py` | Paced summary queue, SQLite WAL setup |
 | `worker.py`, `auto_updater.py` | Background updates every 10 minutes |
 | `trace_log.py` | Event log (agent trace) and demo settings |
 | `Home.py`, `pages/2_Dashboard.py` | Website and dashboard |
@@ -105,7 +127,7 @@ Health check before a demo: `python check_apis.py`
 ## Limitations and roadmap
 
 - The free server's disk is temporary; the next step is a hosted Postgres database.
-- More languages (Bhashini for Assamese and others), WhatsApp channel.
+- Voice for the remaining 12 languages (Bhashini), WhatsApp channel.
 - eGazette notifications with clause-level "what changed" alerts.
 - An MSME compliance calendar from GST and RBI notices.
 
