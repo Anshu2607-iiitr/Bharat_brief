@@ -1,0 +1,23 @@
+# Database aur output
+*.db
+*.txt
+out*.txt
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Secrets kabhi upload nahi
+.env
+*.key
+*.log
+*.wav
+*.ogg
+*.log
+
+# requirements.txt chahiye (deploy)
+!requirements.txt
+
+# SQLite WAL ki saathi files
+*.db-wal
+*.db-shm
